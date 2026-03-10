@@ -1,0 +1,20 @@
+analysis:
+  description: >
+    Analyze current market conditions for the requested tokens.
+    Fetch prices across chains, identify trends and opportunities.
+  expected_output: Market analysis with price data, trends, and opportunities
+  agent: analyst
+
+risk_assessment:
+  description: >
+    Review the analysis and assess portfolio risk.
+    Check current portfolio exposure and recommend safe trade parameters.
+  expected_output: Risk assessment with max position sizes and warnings
+  agent: risk_manager
+
+execution:
+  description: >
+    Based on the analysis and risk assessment, plan and execute optimal trades.
+    Get quotes, verify parameters, and execute swaps.
+  expected_output: Trade execution report with transaction hashes
+  agent: trader
