@@ -2,7 +2,7 @@
 
 from crewai import Agent
 
-from src.tools.suwappu_tools import get_prices, list_chains, get_portfolio
+from src.tools.suwappu_tools import get_prices, list_chains, list_tokens, get_portfolio
 
 
 def create_analyst_agent() -> Agent:
@@ -15,6 +15,6 @@ def create_analyst_agent() -> Agent:
             "portfolio imbalances. You use the Suwappu API to fetch real-time data "
             "across 15 blockchain networks."
         ),
-        tools=[get_prices, list_chains, get_portfolio],
+        tools=[get_prices, list_chains, list_tokens, get_portfolio],
         verbose=True,
     )

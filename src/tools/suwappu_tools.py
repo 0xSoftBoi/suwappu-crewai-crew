@@ -79,3 +79,14 @@ def list_chains() -> str:
         await client.close()
         return [r.model_dump() if hasattr(r, "model_dump") else str(r) for r in result]
     return str(_run_async(_run()))
+
+
+@tool("List tokens")
+def list_tokens(chain: str) -> str:
+    """List all available tokens on a specific chain."""
+    async def _run():
+        client = _get_client()
+        result = await client.list_tokens(chain)
+        await client.close()
+        return [r.model_dump() if hasattr(r, "model_dump") else str(r) for r in result]
+    return str(_run_async(_run()))
