@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 
 from crewai import Crew, Task
@@ -10,6 +11,15 @@ from crewai import Crew, Task
 from src.agents.analyst import create_analyst_agent
 from src.agents.risk import create_risk_agent
 from src.agents.trader import create_trader_agent
+
+
+def sanitize_query(query: str) -> str:
+    query = query[:500]
+    dangerous = ["ignore", "disregard", "forget", "override", "system prompt", "actual task"]
+    for d in dangerous:
+        if d.lower() in query.lower():
+            raise ValueError(f"Query contains potentially dangerous instruction: '{d}'")
+    return query
 
 
 class TradingCrew:
@@ -22,8 +32,9 @@ class TradingCrew:
 
     def run(self, query: str) -> str:
         """Run the crew with a user query."""
+        safe_query = sanitize_query(query)
         analysis_task = Task(
-            description=f"Analyze the following request and provide market insights: {query}",
+            description=f"Analyze the following request and provide market insights: {safe_query}",
             expected_output="Market analysis with price data, trends, and opportunities",
             agent=self.analyst,
         )
@@ -43,7 +54,7 @@ class TradingCrew:
         crew = Crew(
             agents=[self.analyst, self.risk_manager, self.trader],
             tasks=[analysis_task, risk_task, trade_task],
-            verbose=True,
+            verbose=False,
         )
 
         result = crew.kickoff()

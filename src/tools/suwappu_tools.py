@@ -9,6 +9,8 @@ from crewai.tools import tool
 
 from suwappu import create_client
 
+MAX_TRADE_USD = float(os.environ.get("SUWAPPU_MAX_TRADE_USD", "100"))
+
 
 def _get_client():
     api_key = os.environ.get("SUWAPPU_API_KEY", "")
@@ -51,6 +53,12 @@ def get_quote(from_token: str, to_token: str, amount: float, chain: str) -> str:
 @tool("Execute swap")
 def execute_swap(quote_id: str) -> str:
     """Execute a previously quoted swap. Returns transaction hash and status."""
+    if not os.environ.get("SUWAPPU_MAX_TRADE_USD"):
+        raise ValueError(
+            "SUWAPPU_MAX_TRADE_USD must be set before executing trades. "
+            "Set to your max allowed trade in USD."
+        )
+
     async def _run():
         client = _get_client()
         result = await client.execute_swap(quote_id)
