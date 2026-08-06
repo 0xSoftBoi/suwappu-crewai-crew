@@ -1,159 +1,130 @@
 # suwappu-crewai-crew
 
-**Multi-agent trading crew powered by [CrewAI](https://crewai.com) and the [Suwappu](https://suwappu.bot) cross-chain DEX.**
+A safe-by-default multi-agent [CrewAI](https://crewai.com) example built on [Suwappu](https://suwappu.bot).
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![CrewAI](https://img.shields.io/badge/CrewAI-0.80+-green.svg)](https://crewai.com)
+Three agents collaborate on market analysis, risk review, and trade planning. The default crew can quote and simulate, but **cannot call managed-wallet execution**. Live execution requires two deliberate host-side controls: the `--execute` flag and `SUWAPPU_ALLOW_MANAGED_EXECUTION=1`.
 
-Three specialized AI agents collaborate to analyze markets, assess risk, and execute trades across 15 blockchain networks.
+## Current SDK status
 
----
+The Python SDK in `0xSoftBoi/suwappubot/packages/sdk-python` is currently source-only; it is not yet published on PyPI. This repository therefore pins that package to a specific `suwappubot` commit in `pyproject.toml` so a clean checkout is installable and reproducible.
 
-## Architecture
+When `suwappu` is published to PyPI, replace the pinned VCS dependency with the released version.
 
-```
-          ┌─────────────────┐
-          │   User Query     │
-          └────────┬────────┘
-                   │
-          ┌────────▼────────┐
-          │  Market Analyst  │ ── get_prices, list_chains, get_portfolio
-          │  Fetches data,   │
-          │  spots trends    │
-          └────────┬────────┘
-                   │
-          ┌────────▼────────┐
-          │  Risk Manager    │ ── get_portfolio, get_prices
-          │  Checks exposure,│
-          │  sets guardrails │
-          └────────┬────────┘
-                   │
-          ┌────────▼────────┐
-          │ Trade Executor   │ ── get_quote, execute_swap
-          │  Gets quotes,    │
-          │  executes swaps  │
-          └────────┬────────┘
-                   │
-          ┌────────▼────────┐
-          │  Execution Report │
-          └─────────────────┘
-```
-
----
-
-## Features
-
-- **3 specialized agents** — Analyst, Risk Manager, Trader
-- **Configurable via YAML** — Agent roles and task definitions in config files
-- **5 Suwappu tools** — Prices, quotes, swaps, portfolio, chains
-- **15 chains** — Ethereum, Arbitrum, Base, Solana, and more
-- **Natural language** — Just describe what you want: "Rebalance my portfolio to 50/30/20"
-- **OpenClaw compatible** — Includes SKILL.md for AI agent discovery
-
----
-
-## Quick Start
+## Quick start
 
 ```bash
-# 1. Clone
 git clone https://github.com/0xSoftBoi/suwappu-crewai-crew.git
 cd suwappu-crewai-crew
 
-# 2. Install
-pip install -e .
-# or
-uv pip install -e .
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
 
-# 3. Set API keys
-export SUWAPPU_API_KEY=suwappu_sk_...   # Get free at POST https://api.suwappu.bot/v1/agent/register
-export OPENAI_API_KEY=sk-...             # CrewAI uses an LLM backend
+export SUWAPPU_API_KEY=suwappu_sk_...
+export OPENAI_API_KEY=sk-...
 
-# 4. Run
-suwappu-crew "Analyze ETH prices across Arbitrum, Base, and Optimism"
+# Safe default: analyze, quote, and simulate only.
+suwappu-crew "Analyze ETH on Base and Arbitrum and propose a trade plan"
 ```
 
----
-
-## Example Queries
+Register a Suwappu agent if you do not have an API key yet:
 
 ```bash
-# Market analysis
-suwappu-crew "What are the best prices for ETH across all chains?"
-
-# Portfolio rebalancing
-suwappu-crew "Check my portfolio and suggest trades to reach 50% ETH, 30% SOL, 20% USDC"
-
-# Opportunity finding
-suwappu-crew "Find the cheapest chain to buy WBTC right now"
-
-# Risk assessment
-suwappu-crew "Is my portfolio too concentrated? Suggest diversification trades."
+curl -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my-crewai-agent"}'
 ```
 
----
+## Agent roles
 
-## Agents
+| Agent | Tools | Can move funds by default? |
+|---|---|---:|
+| Market Analyst | prices, chains, tokens, portfolio | No |
+| Risk Manager | prices, portfolio | No |
+| Trade Planner | quote, simulate | No |
+| Trade Executor (opt-in mode) | quote, simulate, managed execute | **Yes** |
 
-### Market Analyst
-- **Role**: Monitors prices, identifies trends and opportunities
-- **Tools**: `get_prices`, `list_chains`, `get_portfolio`
-- **Output**: Market analysis with data-backed recommendations
+Portfolio lookups require a wallet address. Simulation requires both a `quote_id` and wallet address.
 
-### Risk Manager
-- **Role**: Validates trade proposals against portfolio exposure
-- **Tools**: `get_portfolio`, `get_prices`
-- **Output**: Risk assessment with max position sizes and warnings
+## Live managed-wallet execution
 
-### Trade Executor
-- **Role**: Gets quotes and executes approved swaps
-- **Tools**: `get_quote`, `execute_swap`
-- **Output**: Execution report with transaction hashes
+Prompt text is not an approval boundary. To expose the live tool, the host has to opt in twice:
 
----
-
-## Configuration
-
-Agent and task definitions live in `src/config/`:
-
-**`agents.yaml`** — Agent roles, goals, and backstories
-**`tasks.yaml`** — Task descriptions and expected outputs
-
-Modify these to customize agent behavior without changing code.
-
----
-
-## Project Structure
-
-```
-suwappu-crewai-crew/
-├── pyproject.toml             # Package config
-├── SKILL.md                   # OpenClaw skill definition
-├── src/
-│   ├── crew.py                # Crew orchestration + CLI
-│   ├── agents/
-│   │   ├── analyst.py         # Market analysis agent
-│   │   ├── trader.py          # Trade execution agent
-│   │   └── risk.py            # Risk management agent
-│   ├── tools/
-│   │   └── suwappu_tools.py   # CrewAI @tool wrappers for Suwappu
-│   └── config/
-│       ├── agents.yaml        # Agent definitions
-│       └── tasks.yaml         # Task definitions
-└── examples/
-    └── run_crew.py            # Example script
+```bash
+export SUWAPPU_ALLOW_MANAGED_EXECUTION=1
+suwappu-crew --execute "Execute the already-approved ETH to USDC plan on Base"
 ```
 
----
+`--execute` changes the trader's tool allowlist for that run. Without it, the execution tool is not present. The environment guard is a second defense if somebody imports the tool directly.
 
-## Environment Variables
+Before live use, provision the agent's managed wallet and configure appropriate Suwappu wallet policies. Do not use a model prompt as a substitute for application-level approval or server-side limits.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SUWAPPU_API_KEY` | Yes | Suwappu API key ([get one free](https://api.suwappu.bot/v1/agent/register)) |
-| `OPENAI_API_KEY` | Yes | LLM backend for CrewAI agents |
+## Suwappu tools
 
----
+| CrewAI tool | Current SDK call | Behavior |
+|---|---|---|
+| Get token prices | `client.get_prices(symbols, chain)` | Read-only |
+| Get swap quote | `client.get_quote(...)` | Read-only quote |
+| Simulate swap | `client.simulate_swap(...)` | Dry-run, no broadcast |
+| Get portfolio | `client.get_portfolio(wallet_address, chain)` | Read-only |
+| List chains | `client.list_chains()` | Read-only |
+| List tokens | `client.list_tokens(chain)` | Read-only |
+| Execute managed swap | `client.execute_swap(quote_id)` | **Live; opt-in** |
+
+Tool results are JSON strings so CrewAI receives structured, machine-readable output instead of Python object representations.
+
+## Examples
+
+```bash
+# Analysis
+suwappu-crew "Compare ETH and SOL prices and explain the route choices"
+
+# Portfolio review — provide the wallet address in the request
+suwappu-crew "Review wallet 0x... on Base and suggest a lower-risk allocation"
+
+# Quote/simulation plan, still no live execution
+suwappu-crew "Quote 100 USDC to ETH on Base and simulate it for wallet 0x..."
+```
+
+## Execution model
+
+The current Python SDK's `execute_swap()` uses Suwappu's managed-wallet pipeline at `POST /v1/agent/swap/execute`. A successful submission returns a Suwappu swap id/status and may also return a transaction hash or polling URL.
+
+This differs from self-custody transaction preparation. Do not describe a managed execution result as an unsigned transaction, and do not describe a quote or simulation as an executed trade.
+
+## Project layout
+
+- `src/crew.py` — CLI, task orchestration, and execution-mode gate
+- `src/agents/` — analyst, risk manager, and trader definitions
+- `src/tools/suwappu_tools.py` — CrewAI wrappers around the current Python SDK
+- `src/config/` — reference YAML for agent/task customization
+- `examples/` — simple invocation example
+
+The runtime currently constructs agents/tasks in Python; the YAML files are reference templates rather than automatically loaded configuration.
+
+## Development
+
+```bash
+python -m pip install -e .
+python -m compileall -q src
+python -c "from src.crew import sanitize_query; assert sanitize_query('Analyze ETH') == 'Analyze ETH'"
+```
+
+CI runs the editable install, source compilation, and import smoke test as blocking checks.
+
+## Hosted MCP alternative
+
+If your CrewAI stack can consume MCP and you want the broader Suwappu tool surface (predictions, perps, lending, swap status/history, wallet policies, and more), use the hosted MCP endpoint:
+
+```text
+https://api.suwappu.bot/mcp
+```
+
+## Links
+
+- [Suwappu docs](https://docs.suwappu.bot)
+- [Python SDK source](https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk-python)
+- [Hosted MCP](https://api.suwappu.bot/mcp)
 
 ## License
 

@@ -1,14 +1,14 @@
 [project]
 name = "suwappu-crewai-crew"
 version = "1.0.0"
-description = "Multi-agent trading crew powered by CrewAI and Suwappu DEX"
+description = "Safe-by-default multi-agent CrewAI example powered by Suwappu"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 keywords = ["crewai", "suwappu", "trading", "multi-agent", "defi"]
 dependencies = [
     "crewai>=0.80.0",
-    "suwappu>=0.1.0",
+    "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@e5281bafe6969ddbe2ca9e80b4ff651d0b2df2a5#subdirectory=packages/sdk-python",
     "pydantic>=2.0",
 ]
 
@@ -22,3 +22,9 @@ Repository = "https://github.com/0xSoftBoi/suwappu-crewai-crew"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
