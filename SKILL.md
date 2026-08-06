@@ -1,6 +1,6 @@
 ---
 name: suwappu-crewai-crew
-description: Multi-agent trading crew — 3 AI agents (analyst, trader, risk manager) collaborate to analyze markets and execute trades
+description: Safe-by-default CrewAI example — analyst, risk manager, and trader plan with Suwappu; managed execution is explicit opt-in
 user-invocable: true
 tools:
   - run_crew
@@ -10,29 +10,41 @@ metadata:
   openclaw.emoji: "🤖"
   openclaw.category: defi
   openclaw.tags: ["crewai", "multi-agent", "trading", "defi", "analysis"]
-  openclaw.install:
-    - type: pip
-      package: "suwappu-crewai-crew"
 ---
 
-# Suwappu CrewAI Trading Crew
+# Suwappu CrewAI
 
-Three specialized AI agents collaborate on a single trading query:
+Three agents collaborate on a request:
 
-1. **Analyst** — Fetches prices, identifies opportunities across 15 chains
-2. **Risk Manager** — Checks portfolio exposure, sets guardrails
-3. **Trader** — Gets quotes, executes swaps within risk parameters
+1. **Analyst** — fetches prices and discovery data across Suwappu's supported chains.
+2. **Risk Manager** — reviews wallet exposure and proposed constraints.
+3. **Trade Planner** — gets quotes and simulations; managed execution is absent by default.
 
 ## Setup
 
+The CrewAI package and the Suwappu Python SDK are not currently published together on PyPI. Install this repository so its pinned SDK source dependency is used:
+
 ```bash
-pip install suwappu-crewai-crew
+git clone https://github.com/0xSoftBoi/suwappu-crewai-crew.git
+cd suwappu-crewai-crew
+python -m pip install -e .
 export SUWAPPU_API_KEY=suwappu_sk_...
 export OPENAI_API_KEY=sk-...
 ```
 
 ## Usage
 
+Safe default:
+
 ```bash
-suwappu-crew "Analyze ETH across chains and suggest rebalancing trades"
+suwappu-crew "Analyze ETH across chains and propose a rebalancing plan"
 ```
+
+Live managed execution is a separate host-approved mode and requires both:
+
+```bash
+export SUWAPPU_ALLOW_MANAGED_EXECUTION=1
+suwappu-crew --execute "Execute the approved plan"
+```
+
+Do not treat prompt text as approval. Configure Suwappu wallet policies and an application-level approval boundary before enabling managed execution.
