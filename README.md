@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![CrewAI](https://img.shields.io/badge/CrewAI-0.80+-green.svg)](https://crewai.com)
 
-Three specialized AI agents collaborate to analyze markets, assess risk, and execute trades across 15 blockchain networks.
+Three specialized AI agents collaborate to analyze markets, assess risk, and execute trades across 14 blockchain networks.
 
 ---
 
@@ -47,7 +47,7 @@ Three specialized AI agents collaborate to analyze markets, assess risk, and exe
 - **3 specialized agents** — Analyst, Risk Manager, Trader
 - **Configurable via YAML** — Agent roles and task definitions in config files
 - **5 Suwappu tools** — Prices, quotes, swaps, portfolio, chains
-- **15 chains** — Ethereum, Arbitrum, Base, Solana, and more
+- **14 chains** — Ethereum, Arbitrum, Base, Solana, and more
 - **Natural language** — Just describe what you want: "Rebalance my portfolio to 50/30/20"
 - **OpenClaw compatible** — Includes SKILL.md for AI agent discovery
 
