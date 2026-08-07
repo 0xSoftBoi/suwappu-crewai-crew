@@ -1,6 +1,6 @@
-# suwappu-crewai-crew
+# Suwappu CrewAI
 
-A production-oriented [CrewAI](https://crewai.com) reference for building agent products on [Suwappu](https://suwappu.bot). Three agents analyze, challenge risk, and produce a structured trade plan. The agents can quote, simulate, prepare unsigned transactions, and reconcile managed-swap history. **No CrewAI agent has a live managed-execution tool.**
+A standalone, production-oriented [CrewAI](https://crewai.com) decision workflow for building agent products on [Suwappu](https://suwappu.bot). Three agents analyze, challenge risk, and produce a structured trade plan behind a bounded/observable API runtime. The agents can quote, simulate, prepare unsigned transactions, and reconcile managed-swap history. **No CrewAI agent has a live managed-execution tool.**
 
 The core pattern is intentionally two-phase:
 
@@ -11,7 +11,7 @@ That boundary matters more than another prompt saying “ask before trading.”
 
 > **Repository visibility:** this repository is currently private. Clone commands require collaborator access until the owner makes it public. The canonical developer documentation lives at [suwappu.bot/docs](https://suwappu.bot/docs).
 
-## Why this example is useful
+## Why this product is useful
 
 CrewAI is strongest when separate roles add real value. This example gives each model a narrow job and keeps irreversible action outside the model loop:
 
@@ -29,6 +29,8 @@ If one agent can do your job reliably, use one agent. A three-agent crew costs m
 This repository targets CrewAI `1.15.x` (`>=1.15,<2`) and Python `>=3.10,<3.14`, matching CrewAI's current documented Python range. It uses CrewAI's native async custom tools and Pydantic task output instead of the old thread-wrapped synchronous tool pattern.
 
 The Suwappu Python SDK dependency is pinned to the merged core commit `09da700efa2cdaf4a3074e2ab8e2c61cbb22fdb7` for a reproducible source install while the SDK release channel is still being normalized.
+
+The financial crew explicitly uses `cache=False`, `memory=False`, and `share_crew=False`. Turning any of those on is a new data-freshness/tenant-isolation decision, not a harmless optimization.
 
 ## Quick start
 
@@ -92,7 +94,7 @@ This command does **not** ask CrewAI what to execute. It:
 4. refuses submission if the simulation says it would not execute; and
 5. calls `execute_managed_swap()` with the intent ID as `Idempotency-Key`.
 
-Do not generate idempotency keys from the current time at retry time. Persist one key per intended economic action. If submission hits a network error or 5xx, the outcome can be unknown: reconcile the managed swap before retrying the **same quote with the same key**.
+Do not generate idempotency keys from the current time at retry time. Persist one key per intended economic action. If submission hits a timeout/network failure, HTTP 408/5xx, or a malformed successful response, the outcome is unknown: reconcile the managed swap before retrying the **same quote with the same key**.
 
 Given the returned `swap_id`, reconcile the specific managed swap with the REST status endpoint:
 
@@ -102,6 +104,22 @@ curl https://api.suwappu.bot/v1/agent/swap/status/4812 \
 ```
 
 The crew also has a read-only managed-swap-history tool for follow-up analysis.
+
+## Enterprise runtime boundary
+
+Every Suwappu SDK operation is wrapped by a product-controlled deadline and a metadata-only event:
+
+~~~bash
+export SUWAPPU_OPERATION_TIMEOUT_SECONDS=15
+~~~
+
+The default is 25 seconds; the accepted range is 0.01-30 seconds because the pinned SDK itself currently has a 30-second HTTP deadline. The `suwappu_crewai.api` logger emits operation, outcome, duration, and HTTP status when present. It does not emit prompts, tool arguments, credentials, wallets, quote/swap IDs, bodies, or exception messages.
+
+Transport timeouts/network failures raise `SuwappuTransportError`. Malformed successful responses raise `SuwappuProtocolError`. A failure in the live submission window becomes `ManagedExecutionOutcomeUnknown`, which carries the durable intent ID for host reconciliation.
+
+There is deliberately no generic retry wrapper. Reads, quotes, simulation, unsigned preparation, and managed execution have different retry semantics.
+
+For tenant isolation, retry rules, persistent intent state, SLO/alert guidance, CrewAI tracing controls, dependency risk, deployment/rollback, and the live-money incident runbook, read [Operations](docs/OPERATIONS.md).
 
 ## Same-chain and cross-chain quotes
 
@@ -159,10 +177,12 @@ See [Build a paid CrewAI product on Suwappu](docs/BUILD_A_CREW_PRODUCT.md) for p
 ## Project layout
 
 - `src/crew.py` — sequential crew, structured `TradePlan`, CLI, deterministic execution command
+- `src/runtime.py` — bounded Suwappu operations, typed failures, metadata-only API events
 - `src/agents/` — bounded analyst, risk reviewer, and trade planner
 - `src/tools/suwappu_tools.py` — native async CrewAI tools + non-agent execution boundary
 - `tests/` — safety and idempotency behavior tests
 - `docs/BUILD_A_CREW_PRODUCT.md` — commercialization and production guide
+- `docs/OPERATIONS.md` — tenant, observability, retry, release, and incident-response contract
 - `examples/` — minimal invocation example
 
 The repo intentionally defines the safety-critical wiring in Python. CrewAI's current JSON-first and classic YAML configuration systems are both useful, but hiding the execution boundary in a config file would make this financial example harder to audit.
@@ -171,12 +191,16 @@ The repo intentionally defines the safety-critical wiring in Python. CrewAI's cu
 
 ```bash
 python -m pip install -e ".[dev]"
+python -m ruff check src tests
+python -m ruff format --check src tests
 python -m compileall -q src tests
 python -m pytest -q
 python -m pip check
+python -m pip_audit --local --ignore-vuln PYSEC-2026-311
+python -m build
 ```
 
-CI runs the package and behavioral tests on Python 3.10 and 3.13.
+CI runs lint/format/compile/package/behavior gates on Python 3.10 and 3.13, audits dependencies, and clean-installs the built wheel. `PYSEC-2026-311` is the one scoped audit exception: CrewAI 1.15.12 installs a ChromaDB version affected by [CVE-2026-45829](https://github.com/advisories/GHSA-f4j7-r4q5-qw2c), but this product never starts/exposes the vulnerable Chroma HTTP server and keeps Crew memory disabled. [SECURITY.md](SECURITY.md) defines when that exception is invalid.
 
 ## Hosted MCP alternative
 
@@ -195,8 +219,8 @@ Use the SDK pattern here when you want the host application to own a small, expl
 - [CrewAI custom tools](https://docs.crewai.com/en/concepts/tools)
 - [CrewAI task outputs](https://docs.crewai.com/en/concepts/tasks)
 - [CrewAI Flows](https://docs.crewai.com/en/concepts/flows)
+- [CrewAI tracing](https://docs.crewai.com/en/observability/tracing)
 
 ## License
 
 [MIT](LICENSE)
-
