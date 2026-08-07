@@ -15,10 +15,18 @@ class FakeModel:
 
 
 class FakeClient:
-    def __init__(self, *, would_execute=True, execute_error=None, wallet_count=1):
+    def __init__(
+        self,
+        *,
+        would_execute=True,
+        execute_error=None,
+        execute_result=None,
+        wallet_count=1,
+    ):
         self.agent = self
         self.would_execute = would_execute
         self.execute_error = execute_error
+        self.execute_result = execute_result
         self.wallet_count = wallet_count
         self.executions = []
         self.simulations = []
@@ -44,6 +52,8 @@ class FakeClient:
         self.executions.append((quote_id, idempotency_key))
         if self.execute_error:
             raise self.execute_error
+        if self.execute_result is not None:
+            return self.execute_result
         return FakeModel(swap_id=4812, status="pending", tx_hash=None)
 
 
@@ -106,7 +116,10 @@ def test_transport_failure_is_reported_as_unknown_outcome(monkeypatch):
     monkeypatch.setenv("SUWAPPU_ALLOW_MANAGED_EXECUTION", "1")
     monkeypatch.setattr(suwappu_tools, "_get_client", lambda: fake)
 
-    with pytest.raises(RuntimeError, match="outcome may be unknown") as exc_info:
+    with pytest.raises(
+        suwappu_tools.ManagedExecutionOutcomeUnknown,
+        match="outcome is unknown",
+    ) as exc_info:
         asyncio.run(
             suwappu_tools.execute_approved_managed_swap(
                 quote_id="q_123", approved_intent_id="intent-123"
@@ -120,12 +133,45 @@ def test_server_error_is_reported_as_unknown_outcome(monkeypatch):
     monkeypatch.setenv("SUWAPPU_ALLOW_MANAGED_EXECUTION", "1")
     monkeypatch.setattr(suwappu_tools, "_get_client", lambda: fake)
 
-    with pytest.raises(RuntimeError, match="server error; outcome may be unknown"):
+    with pytest.raises(
+        suwappu_tools.ManagedExecutionOutcomeUnknown,
+        match="outcome is unknown",
+    ) as exc_info:
         asyncio.run(
             suwappu_tools.execute_approved_managed_swap(
                 quote_id="q_123", approved_intent_id="intent-123"
             )
         )
+    assert exc_info.value.status == 503
+    assert exc_info.value.approved_intent_id == "intent-123"
+
+
+def test_http_408_is_reported_as_unknown_outcome(monkeypatch):
+    fake = FakeClient(execute_error=SuwappuError(408, "request timeout"))
+    monkeypatch.setenv("SUWAPPU_ALLOW_MANAGED_EXECUTION", "1")
+    monkeypatch.setattr(suwappu_tools, "_get_client", lambda: fake)
+
+    with pytest.raises(suwappu_tools.ManagedExecutionOutcomeUnknown) as exc_info:
+        asyncio.run(
+            suwappu_tools.execute_approved_managed_swap(
+                quote_id="q_123", approved_intent_id="intent-123"
+            )
+        )
+    assert exc_info.value.status == 408
+
+
+def test_malformed_success_is_reported_as_unknown_outcome(monkeypatch):
+    fake = FakeClient(execute_result=FakeModel(swap_id=0, status="pending"))
+    monkeypatch.setenv("SUWAPPU_ALLOW_MANAGED_EXECUTION", "1")
+    monkeypatch.setattr(suwappu_tools, "_get_client", lambda: fake)
+
+    with pytest.raises(suwappu_tools.ManagedExecutionOutcomeUnknown) as exc_info:
+        asyncio.run(
+            suwappu_tools.execute_approved_managed_swap(
+                quote_id="q_123", approved_intent_id="intent-123"
+            )
+        )
+    assert exc_info.value.status is None
 
 
 def test_known_client_rejection_is_not_reclassified(monkeypatch):
