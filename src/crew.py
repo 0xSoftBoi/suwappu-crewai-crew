@@ -1,19 +1,48 @@
-"""Suwappu CrewAI example — analysis by default, managed execution by opt-in."""
+"""Suwappu CrewAI reference: agents plan; the host owns live execution."""
 
 from __future__ import annotations
 
 import argparse
-import os
+import asyncio
+import json
+from typing import Literal
 
-from crewai import Crew, Task
+from crewai import Crew, Process, Task
+from pydantic import BaseModel, Field
 
 from src.agents.analyst import create_analyst_agent
 from src.agents.risk import create_risk_agent
 from src.agents.trader import create_trader_agent
+from src.tools.suwappu_tools import execute_approved_managed_swap
+
+
+class TradeCandidate(BaseModel):
+    """One actionable candidate surfaced by the planning crew."""
+
+    quote_id: str
+    route: str = ""
+    from_chain: str | None = None
+    to_chain: str | None = None
+    amount_in: str = ""
+    expected_amount_out: str = ""
+    wallet_address: str | None = None
+    simulation_would_execute: bool | None = None
+    expires_in_seconds: int | None = None
+
+
+class TradePlan(BaseModel):
+    """Stable application-facing output from the final CrewAI task."""
+
+    summary: str
+    risk_notes: list[str] = Field(default_factory=list)
+    candidates: list[TradeCandidate] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+    approval_required: Literal[True] = True
+    executed: Literal[False] = False
 
 
 def sanitize_query(query: str) -> str:
-    """Normalize user text without pretending keyword filters stop prompt injection."""
+    """Normalize user text without pretending a keyword filter stops injection."""
     query = query.strip()
     if not query:
         raise ValueError("Query must not be empty")
@@ -23,95 +52,120 @@ def sanitize_query(query: str) -> str:
 
 
 class TradingCrew:
-    """Analyst + risk manager + trader, with live execution disabled by default."""
+    """Analyst + risk reviewer + trade planner with no broadcast-capable tool."""
 
-    def __init__(self, *, enable_execution: bool = False) -> None:
-        self.enable_execution = enable_execution
+    def __init__(self) -> None:
         self.analyst = create_analyst_agent()
-        self.risk_manager = create_risk_agent()
-        self.trader = create_trader_agent(enable_execution=enable_execution)
+        self.risk_reviewer = create_risk_agent()
+        self.trade_planner = create_trader_agent()
 
-    def run(self, query: str) -> str:
-        """Run the crew with a user query."""
+    def run(self, query: str) -> TradePlan:
         safe_query = sanitize_query(query)
 
         analysis_task = Task(
-            description=f"Analyze the following request and provide market insights: {safe_query}",
-            expected_output="Market analysis grounded in Suwappu tool results",
+            description=(
+                "Analyze this user request using fresh Suwappu data where useful. "
+                "Separate observed tool data from inference and never invent live "
+                f"product capabilities: {safe_query}"
+            ),
+            expected_output="Evidence-grounded market and portfolio analysis",
             agent=self.analyst,
         )
 
         risk_task = Task(
             description=(
-                "Review the analysis and assess portfolio risk. If portfolio data is "
-                "needed, require a wallet address. Recommend constraints and identify "
-                "what should be simulated before any live action."
+                "Review the analysis. Identify missing wallet/route evidence, exposure "
+                "risks, simulation requirements, and explicit constraints. A quote or "
+                "simulation is not evidence that a transaction executed."
             ),
-            expected_output="Risk assessment, constraints, and simulation recommendations",
-            agent=self.risk_manager,
+            expected_output="Risk review with constraints and evidence gaps",
+            agent=self.risk_reviewer,
+            context=[analysis_task],
         )
 
-        if self.enable_execution:
-            trade_description = (
-                "Use fresh Suwappu quotes and the risk assessment. Managed execution is "
-                "enabled by the host for this run; execute only actions that satisfy the "
-                "host-approved scope, and report the returned swap id/status exactly."
-            )
-            trade_output = "Execution report with quote ids, swap ids/status, and any transaction hashes"
-        else:
-            trade_description = (
-                "Plan the trade using fresh quotes. Simulate when a wallet address is "
-                "available. Do not execute, broadcast, or claim that funds moved; return "
-                "an execution plan for human review."
-            )
-            trade_output = "Non-executing trade plan with quotes, simulations, and approval requirements"
-
         trade_task = Task(
-            description=trade_description,
-            expected_output=trade_output,
-            agent=self.trader,
+            description=(
+                "Build a non-broadcasting plan from fresh quotes. For a managed-wallet "
+                "candidate, discover the managed wallet and bind the quote to it; "
+                "simulate before recommending execution. For self-custody, you may "
+                "prepare an unsigned transaction. Never claim funds moved. Return exact "
+                "quote ids and expiry when available. Set approval_required=true and "
+                "executed=false. Managed submission happens only in separate host code."
+            ),
+            expected_output=(
+                "A structured TradePlan containing summary, risk_notes, candidates, "
+                "next_steps, approval_required=true, and executed=false"
+            ),
+            agent=self.trade_planner,
+            context=[analysis_task, risk_task],
+            output_pydantic=TradePlan,
         )
 
         crew = Crew(
-            agents=[self.analyst, self.risk_manager, self.trader],
+            agents=[self.analyst, self.risk_reviewer, self.trade_planner],
             tasks=[analysis_task, risk_task, trade_task],
+            process=Process.sequential,
             verbose=False,
         )
+        result = crew.kickoff()
+        if isinstance(result.pydantic, TradePlan):
+            return result.pydantic
+        return TradePlan.model_validate(result.to_dict())
 
-        return str(crew.kickoff())
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Suwappu CrewAI: plan safely, or submit one pre-approved exact quote"
+    )
+    parser.add_argument("query", nargs="?", help="Natural-language request for the planning crew")
+    parser.add_argument(
+        "--execute-quote",
+        metavar="QUOTE_ID",
+        help="Bypass the crew and submit this exact pre-approved managed-wallet quote",
+    )
+    parser.add_argument(
+        "--approved-intent-id",
+        metavar="ID",
+        help="Durable host-generated intent id forwarded as Suwappu's Idempotency-Key",
+    )
+    parser.add_argument("--execute", action="store_true", help=argparse.SUPPRESS)
+    return parser
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Suwappu CrewAI example (analysis-only unless --execute is set)"
-    )
-    parser.add_argument(
-        "query",
-        nargs="?",
-        default="Analyze ETH prices across chains and suggest rebalancing trades",
-        help="Query for the crew",
-    )
-    parser.add_argument(
-        "--execute",
-        action="store_true",
-        help=(
-            "Expose live Suwappu managed-wallet execution. Also requires "
-            "SUWAPPU_ALLOW_MANAGED_EXECUTION=1."
-        ),
-    )
+    parser = build_parser()
     args = parser.parse_args()
 
-    if args.execute and os.environ.get("SUWAPPU_ALLOW_MANAGED_EXECUTION") != "1":
+    if args.execute:
         parser.error(
-            "--execute also requires SUWAPPU_ALLOW_MANAGED_EXECUTION=1 "
-            "after host-level approval"
+            "--execute was removed: run the planning crew first, then use "
+            "--execute-quote QUOTE_ID --approved-intent-id ID for the exact approved quote"
         )
 
-    result = TradingCrew(enable_execution=args.execute).run(args.query)
-    print("\n" + "=" * 60)
-    print("CREW RESULT:")
-    print("=" * 60)
-    print(result)
+    if args.execute_quote:
+        if args.query:
+            parser.error("do not send a model query when --execute-quote is used")
+        if not args.approved_intent_id:
+            parser.error("--execute-quote requires --approved-intent-id")
+        try:
+            receipt = asyncio.run(
+                execute_approved_managed_swap(
+                    quote_id=args.execute_quote,
+                    approved_intent_id=args.approved_intent_id,
+                )
+            )
+        except Exception as exc:
+            parser.exit(2, f"Managed execution stopped: {exc}\n")
+        print(json.dumps(receipt, indent=2, sort_keys=True, default=str))
+        return
+
+    if args.approved_intent_id:
+        parser.error("--approved-intent-id is only valid with --execute-quote")
+    if not args.query:
+        parser.error("a planning query is required")
+
+    plan = TradingCrew().run(args.query)
+    print(plan.model_dump_json(indent=2))
 
 
 if __name__ == "__main__":

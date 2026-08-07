@@ -1,21 +1,17 @@
-"""Example: Run the Suwappu Trading Crew."""
+"""Minimal example: produce a structured Suwappu TradePlan with CrewAI."""
 
 from src.crew import TradingCrew
 
 
-def main():
+def main() -> None:
     crew = TradingCrew()
-
-    # Example queries
-    queries = [
-        "Analyze ETH prices across Arbitrum, Base, and Optimism. Suggest rebalancing trades.",
-        "Check my portfolio and recommend swaps to reach 50% ETH, 30% SOL, 20% USDC.",
-        "Find the best chain to buy ETH right now based on prices.",
-    ]
-
-    result = crew.run(queries[0])
-    print(result)
+    plan = crew.run(
+        "Compare ETH routes for 100 USDC on Base. If a wallet is needed, "
+        "say so explicitly. Quote and simulate if possible; do not execute."
+    )
+    print(plan.model_dump_json(indent=2))
 
 
 if __name__ == "__main__":
     main()
+
