@@ -20,9 +20,17 @@ def test_trade_plan_defaults_to_unexecuted_and_needs_approval():
     assert plan.executed is False
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("approval_required", False), ("executed", True)],
+)
+def test_trade_plan_cannot_claim_approval_bypass_or_execution(field, value):
+    with pytest.raises(ValueError):
+        TradePlan(summary="Unsafe model output", **{field: value})
+
+
 def test_trade_planner_has_no_live_execution_tool():
     names = {tool.name.lower() for tool in SAFE_TRADE_TOOLS}
     assert "execute managed swap" not in names
     assert "simulate swap" in names
     assert "prepare unsigned swap" in names
-
