@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from typing import Literal
 
 from crewai import Crew, Process, Task
 from pydantic import BaseModel, Field
@@ -36,8 +37,8 @@ class TradePlan(BaseModel):
     risk_notes: list[str] = Field(default_factory=list)
     candidates: list[TradeCandidate] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
-    approval_required: bool = True
-    executed: bool = False
+    approval_required: Literal[True] = True
+    executed: Literal[False] = False
 
 
 def sanitize_query(query: str) -> str:
@@ -169,4 +170,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
