@@ -1,6 +1,6 @@
 ---
 name: suwappu-crewai-crew
-description: Safe-by-default CrewAI example — analyst, risk manager, and trader plan with Suwappu; managed execution is explicit opt-in
+description: Safe CrewAI reference — analyst, risk reviewer, and planner use Suwappu; exact managed execution stays in host code
 user-invocable: true
 tools:
   - run_crew
@@ -14,37 +14,41 @@ metadata:
 
 # Suwappu CrewAI
 
-Three agents collaborate on a request:
+Three bounded agents collaborate on a request:
 
-1. **Analyst** — fetches prices and discovery data across Suwappu's supported chains.
-2. **Risk Manager** — reviews wallet exposure and proposed constraints.
-3. **Trade Planner** — gets quotes and simulations; managed execution is absent by default.
+1. **Market Analyst** — fetches current Suwappu discovery/portfolio evidence.
+2. **Risk Reviewer** — challenges exposure, constraints, and missing evidence.
+3. **Trade Planner** — quotes, simulates, prepares unsigned self-custody transactions, and returns a structured plan.
+
+No agent has a managed-wallet execution tool.
 
 ## Setup
 
-The CrewAI package and the Suwappu Python SDK are not currently published together on PyPI. Install this repository so its pinned SDK source dependency is used:
+Install the repository so its pinned Suwappu Python SDK source dependency is used, then set:
 
 ```bash
-git clone https://github.com/0xSoftBoi/suwappu-crewai-crew.git
-cd suwappu-crewai-crew
-python -m pip install -e .
 export SUWAPPU_API_KEY=suwappu_sk_...
 export OPENAI_API_KEY=sk-...
 ```
 
-## Usage
-
-Safe default:
+## Plan
 
 ```bash
-suwappu-crew "Analyze ETH across chains and propose a rebalancing plan"
+suwappu-crew "Quote 100 USDC to ETH on Base for my managed wallet, simulate it, and return the exact quote id"
 ```
 
-Live managed execution is a separate host-approved mode and requires both:
+The output is a validated `TradePlan` with `approval_required=true` and `executed=false`.
+
+## Execute an approved exact quote
+
+Only after the host has approved and persisted the exact quote + intent:
 
 ```bash
 export SUWAPPU_ALLOW_MANAGED_EXECUTION=1
-suwappu-crew --execute "Execute the approved plan"
+suwappu-crew --execute-quote QUOTE_ID --approved-intent-id durable-intent-001
 ```
 
-Do not treat prompt text as approval. Configure Suwappu wallet policies and an application-level approval boundary before enabling managed execution.
+This path bypasses the model, re-simulates the quote, and forwards the durable intent ID as Suwappu's idempotency key. On an unknown network/5xx outcome, reconcile status/history before retrying the same quote with the same key.
+
+Do not treat prompt text, a quote, or a successful simulation as proof of authorization or execution.
+
