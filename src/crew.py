@@ -9,6 +9,7 @@ from typing import Literal
 
 from crewai import Crew, Process, Task
 from pydantic import BaseModel, Field
+from suwappu import SuwappuError
 
 from src.agents.analyst import create_analyst_agent
 from src.agents.risk import create_risk_agent
@@ -105,6 +106,9 @@ class TradingCrew:
             agents=[self.analyst, self.risk_reviewer, self.trade_planner],
             tasks=[analysis_task, risk_task, trade_task],
             process=Process.sequential,
+            cache=False,
+            memory=False,
+            share_crew=False,
             verbose=False,
         )
         result = crew.kickoff()
@@ -117,7 +121,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Suwappu CrewAI: plan safely, or submit one pre-approved exact quote"
     )
-    parser.add_argument("query", nargs="?", help="Natural-language request for the planning crew")
+    parser.add_argument(
+        "query", nargs="?", help="Natural-language request for the planning crew"
+    )
     parser.add_argument(
         "--execute-quote",
         metavar="QUOTE_ID",
@@ -154,7 +160,7 @@ def main() -> None:
                     approved_intent_id=args.approved_intent_id,
                 )
             )
-        except Exception as exc:
+        except (SuwappuError, RuntimeError, ValueError) as exc:
             parser.exit(2, f"Managed execution stopped: {exc}\n")
         print(json.dumps(receipt, indent=2, sort_keys=True, default=str))
         return
