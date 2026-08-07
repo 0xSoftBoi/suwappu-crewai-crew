@@ -1,19 +1,25 @@
 [project]
 name = "suwappu-crewai-crew"
-version = "2.0.0"
-description = "Safe-by-default multi-agent CrewAI reference powered by Suwappu"
+version = "2.1.0"
+description = "Production CrewAI decision workflow with a host-controlled Suwappu execution boundary"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10,<3.14"
 keywords = ["crewai", "suwappu", "trading", "multi-agent", "defi"]
 dependencies = [
     "crewai>=1.15,<2",
+    "httpx>=0.27,<1",
     "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@09da700efa2cdaf4a3074e2ab8e2c61cbb22fdb7#subdirectory=packages/sdk-python",
     "pydantic>=2.7,<3",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9"]
+dev = [
+    "build>=1.2,<2",
+    "pip-audit>=2.9,<3",
+    "pytest>=9.0.3,<10",
+    "ruff>=0.12,<1",
+]
 
 [project.scripts]
 suwappu-crew = "src.crew:main"
@@ -43,6 +49,7 @@ include = [
     "LICENSE",
     "SECURITY.md",
     "SKILL.md",
+    "CHANGELOG.md",
     "pyproject.toml",
 ]
 exclude = [
