@@ -1,42 +1,35 @@
 # Security Policy
 
-This repository is a satellite / example application built on the
-[Suwappu API](https://github.com/0xSoftBoi/suwappubot). Some examples can
-initiate real financial transactions when execution is enabled. Treat API keys,
-wallet credentials, and configuration as sensitive.
+This repository is a satellite/reference application built on the [Suwappu API](https://github.com/0xSoftBoi/suwappubot). Treat API keys, wallet credentials, approval records, and execution identifiers as sensitive.
 
 ## Reporting a vulnerability
 
-**Do not open a public issue for security reports.** Instead:
+Do not open a public issue for security reports. Use GitHub Private Vulnerability Reporting when enabled, or email **security@suwappu.bot**. Include the affected file/version, reproduction steps, and impact assessment.
 
-- Use **GitHub Private Vulnerability Reporting** when it is enabled for this repository, or
-- Email **security@suwappu.bot**.
+Issues in the Suwappu API, shared SDKs, contracts, or custody/key-management layer should be reported through the [core security policy](https://github.com/0xSoftBoi/suwappubot/security/policy).
 
-Please include the affected file, version or commit, reproduction steps, and an
-impact assessment.
+## Execution boundary
 
-**Scope note:** issues in this repository's own code, SDK usage, dependencies,
-or CI belong here. Vulnerabilities in the Suwappu API, core bot, smart
-contracts, custody/key-management layer, or shared SDK should be reported
-upstream through the
-[core security policy](https://github.com/0xSoftBoi/suwappubot/security/policy).
+CrewAI agents in this repo do not receive a live managed-wallet execution tool. Managed submission is a separate host function that requires all of the following:
 
-## Custody and execution model
+- an exact `quote_id` approved outside the model loop;
+- a persisted `approved_intent_id` used as Suwappu's idempotency key;
+- `SUWAPPU_ALLOW_MANAGED_EXECUTION=1`; and
+- a fresh simulation against the agent's managed wallet that reports `would_execute`.
 
-Suwappu supports both self-custody and custodial product flows. This satellite
-repository does not make a custody guarantee: behavior depends on the API mode
-and configuration in use. Prefer dry-run or read-only modes where available,
-use test wallets before enabling execution, and never commit credentials.
+Do not weaken this boundary by exposing `execute_approved_managed_swap()` as a general-purpose model tool.
+
+A network or server failure during submission can leave the result unknown. Reconcile managed swap status/history before retrying, and reuse the same intent ID for the same intended economic action.
+
+## Operational guidance
+
+- Keep secrets out of prompts, traces, logs, committed files, and issue reports.
+- Use wallet policies and application-level limits appropriate to the product.
+- Prefer read/quote/simulate/prepare paths until a live boundary is explicitly required.
+- Test failure, timeout, and reconciliation behavior before funding a managed wallet.
+- Never describe a quote, simulation, or unsigned transaction as an executed trade.
 
 ## Our commitment
 
-- **Acknowledge** reports within 3 business days.
-- **Triage and severity** within 7 business days.
-- **Coordinate disclosure** with the reporter and provide credit unless
-  anonymity is requested.
+We aim to acknowledge reports within 3 business days and triage severity within 7 business days. Good-faith research under this policy, without privacy violations, data destruction, or service degradation, is covered by our safe-harbor intent.
 
-## Safe harbor
-
-Good-faith research conducted under this policy, without privacy violations,
-data destruction, or service degradation, will not result in legal action from
-us. If in doubt, contact us before testing.
