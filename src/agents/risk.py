@@ -1,20 +1,24 @@
-"""Risk Manager Agent — validates trades and checks portfolio exposure."""
+"""Risk reviewer agent — challenges proposals without a live action tool."""
 
 from crewai import Agent
 
-from src.tools.suwappu_tools import get_portfolio, get_prices
+from src.tools.suwappu_tools import get_portfolio, get_prices, get_swap_history
+
+RISK_TOOLS = [get_portfolio, get_prices, get_swap_history]
 
 
 def create_risk_agent() -> Agent:
     return Agent(
-        role="Risk Manager",
-        goal="Validate proposed trades and check portfolio exposure limits",
+        role="Risk Reviewer",
+        goal="Challenge trade proposals and make constraints explicit before approval",
         backstory=(
-            "You are a cautious risk manager. You review every trade proposal to ensure "
-            "it doesn't exceed position limits, expose the portfolio to excessive "
-            "concentration risk, or trade during high-volatility periods. You check "
-            "current portfolio state and set guardrails for the trader."
+            "You are a cautious risk reviewer. You verify wallet exposure when an "
+            "address is available, surface missing evidence, and separate simulation "
+            "results from guarantees. You cannot submit transactions."
         ),
-        tools=[get_portfolio, get_prices],
-        verbose=True,
+        tools=RISK_TOOLS,
+        max_iter=6,
+        allow_delegation=False,
+        verbose=False,
     )
+
