@@ -21,4 +21,3 @@ def create_risk_agent() -> Agent:
         allow_delegation=False,
         verbose=False,
     )
-

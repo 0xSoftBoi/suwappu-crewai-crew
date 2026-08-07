@@ -101,14 +101,19 @@ Before managed execution is available to a customer:
 
 - bind quotes to the wallet that will simulate/execute them;
 - keep live execution outside the CrewAI tool allowlist;
+- keep CrewAI cache/memory/crew-sharing off until their tenant/data-retention behavior is deliberately designed;
 - persist one durable idempotency key per intended trade;
 - reject failed simulations before submission;
 - configure server-side wallet policies appropriate to the product;
-- treat network/5xx submission failures as potentially unknown outcomes;
+- treat timeout/network/408/5xx and malformed-success submission results as unknown outcomes;
 - reconcile with swap status/history or signed webhooks before retrying;
 - keep secrets out of prompts, logs, traces, and repository history;
 - add rate, spend, and model-cost budgets around the workflow;
+- reserve worker/API capacity for reconciliation so new traffic cannot starve unknown-outcome recovery;
+- regression-test model/prompt/tool changes before promoting them to a live-money environment;
 - test the failure path, not only the happy path.
+
+CrewAI's built-in tracing can include agent decisions, tool use, and LLM calls. Treat that trace stream as customer-sensitive data; enabling it requires the same tenant, access, retention, and redaction review as application logs.
 
 ## 7. SDK versus MCP
 
@@ -133,4 +138,6 @@ A good first product milestone is not autonomous trading. It is:
 5. you can measure whether that user comes back.
 
 Once that loop is reliable and retained, add automation deliberately.
+
+For the concrete request timeout, typed-error, observability, tenant-isolation, dependency-security, rollout, and incident-response contract, continue with [Operations](OPERATIONS.md).
 

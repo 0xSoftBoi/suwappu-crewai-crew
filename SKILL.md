@@ -22,6 +22,8 @@ Three bounded agents collaborate on a request:
 
 No agent has a managed-wallet execution tool.
 
+All Suwappu calls have a bounded operation deadline (25 seconds by default, configurable with `SUWAPPU_OPERATION_TIMEOUT_SECONDS`) and metadata-only runtime events. CrewAI cache, memory, and crew sharing are disabled for this financial workflow.
+
 ## Setup
 
 Install the repository so its pinned Suwappu Python SDK source dependency is used, then set:
@@ -48,7 +50,7 @@ export SUWAPPU_ALLOW_MANAGED_EXECUTION=1
 suwappu-crew --execute-quote QUOTE_ID --approved-intent-id durable-intent-001
 ```
 
-This path bypasses the model, re-simulates the quote, and forwards the durable intent ID as Suwappu's idempotency key. On an unknown network/5xx outcome, reconcile status/history before retrying the same quote with the same key.
+This path bypasses the model, re-simulates the quote, and forwards the durable intent ID as Suwappu's idempotency key. Timeout/network failures, HTTP 408/5xx, and malformed successful responses are outcome-unknown: reconcile status/history before retrying the same quote with the same key.
 
 Do not treat prompt text, a quote, or a successful simulation as proof of authorization or execution.
 
