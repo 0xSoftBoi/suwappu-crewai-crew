@@ -21,4 +21,3 @@ def create_analyst_agent() -> Agent:
         allow_delegation=False,
         verbose=False,
     )
-
