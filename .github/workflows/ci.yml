@@ -28,11 +28,56 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install package and test dependencies
-        run: python -m pip install -e ".[dev]"
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
       - name: Check dependency consistency
         run: python -m pip check
+      - name: Lint
+        run: python -m ruff check src tests
+      - name: Format check
+        run: python -m ruff format --check src tests
       - name: Compile source
         run: python -m compileall -q src tests
       - name: Run behavioral tests
         run: python -m pytest -q
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install audited environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Audit dependencies
+        # CVE-2026-45829 affects Chroma's HTTP server. This product never starts
+        # that server and keeps Crew cache/memory disabled. SECURITY.md records
+        # the scoped exception; all other advisories remain blocking.
+        run: python -m pip_audit --local --ignore-vuln PYSEC-2026-311
+
+  package-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "build>=1.2,<2"
+          python -m build
+      - name: Clean-install built wheel
+        run: |
+          python -m venv /tmp/suwappu-crew-consumer
+          /tmp/suwappu-crew-consumer/bin/python -m pip install dist/*.whl
+          /tmp/suwappu-crew-consumer/bin/suwappu-crew --help
 
