@@ -1,14 +1,34 @@
 # suwappu-crewai-crew
 
-A safe-by-default multi-agent [CrewAI](https://crewai.com) example built on [Suwappu](https://suwappu.bot).
+A production-oriented [CrewAI](https://crewai.com) reference for building agent products on [Suwappu](https://suwappu.bot). Three agents analyze, challenge risk, and produce a structured trade plan. The agents can quote, simulate, prepare unsigned transactions, and reconcile managed-swap history. **No CrewAI agent has a live managed-execution tool.**
 
-Three agents collaborate on market analysis, risk review, and trade planning. The default crew can quote and simulate, but **cannot call managed-wallet execution**. Live execution requires two deliberate host-side controls: the `--execute` flag and `SUWAPPU_ALLOW_MANAGED_EXECUTION=1`.
+The core pattern is intentionally two-phase:
 
-## Current SDK status
+1. let the model produce an evidence-backed plan;
+2. let deterministic host code approve and submit one exact quote.
 
-The Python SDK in `0xSoftBoi/suwappubot/packages/sdk-python` is currently source-only; it is not yet published on PyPI. This repository therefore pins that package to a specific `suwappubot` commit in `pyproject.toml` so a clean checkout is installable and reproducible.
+That boundary matters more than another prompt saying “ask before trading.”
 
-When `suwappu` is published to PyPI, replace the pinned VCS dependency with the released version.
+> **Repository visibility:** this repository is currently private. Clone commands require collaborator access until the owner makes it public. The canonical developer documentation lives at [suwappu.bot/docs](https://suwappu.bot/docs).
+
+## Why this example is useful
+
+CrewAI is strongest when separate roles add real value. This example gives each model a narrow job and keeps irreversible action outside the model loop:
+
+| Role | Job | Suwappu access | Moves funds? |
+|---|---|---|---:|
+| Market Analyst | Ground the request in current price, chain, token, and portfolio data | Read-only | No |
+| Risk Reviewer | Challenge exposure, evidence gaps, and proposed constraints | Read-only + history | No |
+| Trade Planner | Quote, simulate, prepare unsigned self-custody transactions, return exact quote IDs | Non-broadcasting | No |
+| Host approval boundary | Re-simulate one approved quote and submit with a durable idempotency key | Managed execution | **Yes** |
+
+If one agent can do your job reliably, use one agent. A three-agent crew costs more model tokens and adds latency. Split roles only when the extra review or specialization measurably improves the product.
+
+## Current compatibility
+
+This repository targets CrewAI `1.15.x` (`>=1.15,<2`) and Python `>=3.10,<3.14`, matching CrewAI's current documented Python range. It uses CrewAI's native async custom tools and Pydantic task output instead of the old thread-wrapped synchronous tool pattern.
+
+The Suwappu Python SDK dependency is pinned to the merged core commit `09da700efa2cdaf4a3074e2ab8e2c61cbb22fdb7` for a reproducible source install while the SDK release channel is still being normalized.
 
 ## Quick start
 
@@ -23,109 +43,160 @@ python -m pip install -e .
 export SUWAPPU_API_KEY=suwappu_sk_...
 export OPENAI_API_KEY=sk-...
 
-# Safe default: analyze, quote, and simulate only.
-suwappu-crew "Analyze ETH on Base and Arbitrum and propose a trade plan"
+suwappu-crew "Quote 100 USDC to ETH on Base for my managed wallet, simulate it, and return the exact quote id for review"
 ```
 
-Register a Suwappu agent if you do not have an API key yet:
+Register a Suwappu agent if you do not already have an API key:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
   -H "Content-Type: application/json" \
-  -d '{"name":"my-crewai-agent"}'
+  -d '{"name":"my-crewai-product"}'
 ```
 
-## Agent roles
+The final CrewAI task is validated into a `TradePlan` instead of returning free-form text:
 
-| Agent | Tools | Can move funds by default? |
-|---|---|---:|
-| Market Analyst | prices, chains, tokens, portfolio | No |
-| Risk Manager | prices, portfolio | No |
-| Trade Planner | quote, simulate | No |
-| Trade Executor (opt-in mode) | quote, simulate, managed execute | **Yes** |
+```json
+{
+  "summary": "...",
+  "risk_notes": ["..."],
+  "candidates": [
+    {
+      "quote_id": "...",
+      "simulation_would_execute": true
+    }
+  ],
+  "next_steps": ["Review the exact quote before managed submission"],
+  "approval_required": true,
+  "executed": false
+}
+```
 
-Portfolio lookups require a wallet address. Simulation requires both a `quote_id` and wallet address.
+## Managed execution: separate host action
 
-## Live managed-wallet execution
-
-Prompt text is not an approval boundary. To expose the live tool, the host has to opt in twice:
+After a human or application policy approves the exact `quote_id`, persist a durable intent ID in your application. Then call the host execution path:
 
 ```bash
 export SUWAPPU_ALLOW_MANAGED_EXECUTION=1
-suwappu-crew --execute "Execute the already-approved ETH to USDC plan on Base"
+
+suwappu-crew \
+  --execute-quote YOUR_EXACT_QUOTE_ID \
+  --approved-intent-id rebalance-2026-08-06-001
 ```
 
-`--execute` changes the trader's tool allowlist for that run. Without it, the execution tool is not present. The environment guard is a second defense if somebody imports the tool directly.
+This command does **not** ask CrewAI what to execute. It:
 
-Before live use, provision the agent's managed wallet and configure appropriate Suwappu wallet policies. Do not use a model prompt as a substitute for application-level approval or server-side limits.
+1. validates the host-generated intent ID;
+2. loads the Suwappu agent's managed wallet;
+3. re-simulates the exact approved quote against that wallet;
+4. refuses submission if the simulation says it would not execute; and
+5. calls `execute_managed_swap()` with the intent ID as `Idempotency-Key`.
 
-## Suwappu tools
+Do not generate idempotency keys from the current time at retry time. Persist one key per intended economic action. If submission hits a network error or 5xx, the outcome can be unknown: reconcile the managed swap before retrying the **same quote with the same key**.
 
-| CrewAI tool | Current SDK call | Behavior |
-|---|---|---|
-| Get token prices | `client.get_prices(symbols, chain)` | Read-only |
-| Get swap quote | `client.get_quote(...)` | Read-only quote |
-| Simulate swap | `client.simulate_swap(...)` | Dry-run, no broadcast |
-| Get portfolio | `client.get_portfolio(wallet_address, chain)` | Read-only |
-| List chains | `client.list_chains()` | Read-only |
-| List tokens | `client.list_tokens(chain)` | Read-only |
-| Execute managed swap | `client.execute_swap(quote_id)` | **Live; opt-in** |
-
-Tool results are JSON strings so CrewAI receives structured, machine-readable output instead of Python object representations.
-
-## Examples
+Given the returned `swap_id`, reconcile the specific managed swap with the REST status endpoint:
 
 ```bash
-# Analysis
-suwappu-crew "Compare ETH and SOL prices and explain the route choices"
-
-# Portfolio review — provide the wallet address in the request
-suwappu-crew "Review wallet 0x... on Base and suggest a lower-risk allocation"
-
-# Quote/simulation plan, still no live execution
-suwappu-crew "Quote 100 USDC to ETH on Base and simulate it for wallet 0x..."
+curl https://api.suwappu.bot/v1/agent/swap/status/4812 \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
 ```
 
-## Execution model
+The crew also has a read-only managed-swap-history tool for follow-up analysis.
 
-The current Python SDK's `execute_swap()` uses Suwappu's managed-wallet pipeline at `POST /v1/agent/swap/execute`. A successful submission returns a Suwappu swap id/status and may also return a transaction hash or polling URL.
+## Same-chain and cross-chain quotes
 
-This differs from self-custody transaction preparation. Do not describe a managed execution result as an unsigned transaction, and do not describe a quote or simulation as an executed trade.
+The quote tool exposes the current SDK contract:
+
+- same-chain: `chain="base"`;
+- cross-chain: `from_chain="base", to_chain="arbitrum"`;
+- wallet-bound: include `wallet_address` before simulation or transaction preparation;
+- optional: set `slippage` explicitly instead of hiding it in a prompt.
+
+Ask for the parameters you actually need:
+
+```bash
+suwappu-crew "Quote 100 USDC on Base to ETH on Arbitrum for wallet 0x..., simulate it, and explain fees, route, expiry, and risks. Do not execute."
+```
+
+## Tool surface
+
+| CrewAI tool | SDK call | Authority |
+|---|---|---|
+| Get token prices | `get_prices` | Read-only |
+| Get swap quote | `get_quote` | Read-only |
+| Simulate swap | `simulate_swap` | Dry-run |
+| Prepare unsigned swap | `prepare_swap` | Builds only; no signing/broadcast |
+| Get portfolio | `get_portfolio` | Read-only |
+| List chains | `list_chains` | Read-only |
+| List tokens | `list_tokens` | Read-only |
+| List managed wallets | `client.agent.list_wallets` | Read-only |
+| Get managed swap history | `list_swaps` | Read-only reconciliation |
+
+`execute_approved_managed_swap()` is plain Python, not a CrewAI tool. Keeping that distinction visible is the point of this reference implementation.
+
+## Build a product, not just a demo
+
+A useful commercial ladder is:
+
+1. **Free evidence:** portfolio/risk brief or route plan that gets a user to a real quote.
+2. **Paid workflow:** saved policies, recurring analysis, team review, alerts, or richer decision support.
+3. **Optional action:** exact-quote approval and bounded execution for users who need it.
+4. **Retention:** reconcile outcomes and make the next decision easier, rather than optimizing for one-off prompts.
+
+Track contribution margin instead of assuming “agents” are cheap:
+
+```text
+contribution_margin_per_run
+  = revenue_attributed_to_run
+  - model_cost
+  - Suwappu_API_cost
+  - infrastructure_cost
+  - expected_support_and_loss_budget
+```
+
+See [Build a paid CrewAI product on Suwappu](docs/BUILD_A_CREW_PRODUCT.md) for product ladders, instrumentation, and launch gates.
 
 ## Project layout
 
-- `src/crew.py` — CLI, task orchestration, and execution-mode gate
-- `src/agents/` — analyst, risk manager, and trader definitions
-- `src/tools/suwappu_tools.py` — CrewAI wrappers around the current Python SDK
-- `src/config/` — reference YAML for agent/task customization
-- `examples/` — simple invocation example
+- `src/crew.py` — sequential crew, structured `TradePlan`, CLI, deterministic execution command
+- `src/agents/` — bounded analyst, risk reviewer, and trade planner
+- `src/tools/suwappu_tools.py` — native async CrewAI tools + non-agent execution boundary
+- `tests/` — safety and idempotency behavior tests
+- `docs/BUILD_A_CREW_PRODUCT.md` — commercialization and production guide
+- `examples/` — minimal invocation example
 
-The runtime currently constructs agents/tasks in Python; the YAML files are reference templates rather than automatically loaded configuration.
+The repo intentionally defines the safety-critical wiring in Python. CrewAI's current JSON-first and classic YAML configuration systems are both useful, but hiding the execution boundary in a config file would make this financial example harder to audit.
 
 ## Development
 
 ```bash
-python -m pip install -e .
-python -m compileall -q src
-python -c "from src.crew import sanitize_query; assert sanitize_query('Analyze ETH') == 'Analyze ETH'"
+python -m pip install -e ".[dev]"
+python -m compileall -q src tests
+python -m pytest -q
+python -m pip check
 ```
 
-CI runs the editable install, source compilation, and import smoke test as blocking checks.
+CI runs the package and behavioral tests on Python 3.10 and 3.13.
 
 ## Hosted MCP alternative
 
-If your CrewAI stack can consume MCP and you want the broader Suwappu tool surface (predictions, perps, lending, swap status/history, wallet policies, and more), use the hosted MCP endpoint:
+CrewAI can also consume MCP servers. If you want Suwappu's broader agent tool surface rather than a small SDK allowlist, connect to:
 
 ```text
 https://api.suwappu.bot/mcp
 ```
 
+Use the SDK pattern here when you want the host application to own a small, explicit capability set. Use MCP when dynamic tool discovery and the broader surface are the better fit.
+
 ## Links
 
-- [Suwappu docs](https://docs.suwappu.bot)
-- [Python SDK source](https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk-python)
-- [Hosted MCP](https://api.suwappu.bot/mcp)
+- [Suwappu developer docs](https://suwappu.bot/docs)
+- [Suwappu Python SDK source](https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk-python)
+- [CrewAI custom tools](https://docs.crewai.com/en/concepts/tools)
+- [CrewAI task outputs](https://docs.crewai.com/en/concepts/tasks)
+- [CrewAI Flows](https://docs.crewai.com/en/concepts/flows)
 
 ## License
 
 [MIT](LICENSE)
+
