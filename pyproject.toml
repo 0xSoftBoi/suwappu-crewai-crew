@@ -1,21 +1,25 @@
 [project]
 name = "suwappu-crewai-crew"
-version = "1.0.0"
-description = "Safe-by-default multi-agent CrewAI example powered by Suwappu"
+version = "2.0.0"
+description = "Safe-by-default multi-agent CrewAI reference powered by Suwappu"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 keywords = ["crewai", "suwappu", "trading", "multi-agent", "defi"]
 dependencies = [
-    "crewai>=0.80.0",
-    "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@e5281bafe6969ddbe2ca9e80b4ff651d0b2df2a5#subdirectory=packages/sdk-python",
-    "pydantic>=2.0",
+    "crewai>=1.15,<2",
+    "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@09da700efa2cdaf4a3074e2ab8e2c61cbb22fdb7#subdirectory=packages/sdk-python",
+    "pydantic>=2.7,<3",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
 
 [project.scripts]
 suwappu-crew = "src.crew:main"
 
 [project.urls]
+Documentation = "https://suwappu.bot/docs"
 Homepage = "https://github.com/0xSoftBoi/suwappu-crewai-crew"
 Repository = "https://github.com/0xSoftBoi/suwappu-crewai-crew"
 
@@ -28,3 +32,27 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src",
+    "tests",
+    "docs",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "SKILL.md",
+    "pyproject.toml",
+]
+exclude = [
+    "/build-env-*",
+    "/pip-*",
+    "/dist",
+    "/.venv",
+    "**/__pycache__",
+    "*.pyc",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
