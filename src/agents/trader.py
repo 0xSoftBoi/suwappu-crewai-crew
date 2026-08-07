@@ -33,4 +33,3 @@ def create_trader_agent() -> Agent:
         allow_delegation=False,
         verbose=False,
     )
-
