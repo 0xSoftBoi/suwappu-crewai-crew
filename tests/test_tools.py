@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from suwappu import SuwappuError
 
 from src.tools import suwappu_tools
 
@@ -14,10 +15,11 @@ class FakeModel:
 
 
 class FakeClient:
-    def __init__(self, *, would_execute=True, execute_error=None):
+    def __init__(self, *, would_execute=True, execute_error=None, wallet_count=1):
         self.agent = self
         self.would_execute = would_execute
         self.execute_error = execute_error
+        self.wallet_count = wallet_count
         self.executions = []
         self.simulations = []
 
@@ -28,7 +30,7 @@ class FakeClient:
         return None
 
     async def list_wallets(self):
-        return [FakeModel(address="0xmanaged")]
+        return [FakeModel(address=f"0xmanaged{i}") for i in range(self.wallet_count)]
 
     async def simulate_swap(self, *, quote_id, wallet_address):
         self.simulations.append((quote_id, wallet_address))
@@ -80,7 +82,7 @@ def test_managed_execution_resimulates_and_forwards_idempotency(monkeypatch):
         )
     )
 
-    assert fake.simulations == [("q_123", "0xmanaged")]
+    assert fake.simulations == [("q_123", "0xmanaged0")]
     assert fake.executions == [("q_123", "intent-123")]
     assert receipt["execution"]["swap_id"] == 4812
 
@@ -111,3 +113,47 @@ def test_transport_failure_is_reported_as_unknown_outcome(monkeypatch):
             )
         )
     assert "same approved_intent_id" in str(exc_info.value)
+
+
+def test_server_error_is_reported_as_unknown_outcome(monkeypatch):
+    fake = FakeClient(execute_error=SuwappuError(503, "upstream unavailable"))
+    monkeypatch.setenv("SUWAPPU_ALLOW_MANAGED_EXECUTION", "1")
+    monkeypatch.setattr(suwappu_tools, "_get_client", lambda: fake)
+
+    with pytest.raises(RuntimeError, match="server error; outcome may be unknown"):
+        asyncio.run(
+            suwappu_tools.execute_approved_managed_swap(
+                quote_id="q_123", approved_intent_id="intent-123"
+            )
+        )
+
+
+def test_known_client_rejection_is_not_reclassified(monkeypatch):
+    rejection = SuwappuError(409, "quote expired")
+    fake = FakeClient(execute_error=rejection)
+    monkeypatch.setenv("SUWAPPU_ALLOW_MANAGED_EXECUTION", "1")
+    monkeypatch.setattr(suwappu_tools, "_get_client", lambda: fake)
+
+    with pytest.raises(SuwappuError) as exc_info:
+        asyncio.run(
+            suwappu_tools.execute_approved_managed_swap(
+                quote_id="q_123", approved_intent_id="intent-123"
+            )
+        )
+    assert exc_info.value is rejection
+
+
+@pytest.mark.parametrize("wallet_count", [0, 2])
+def test_managed_execution_requires_exactly_one_wallet(monkeypatch, wallet_count):
+    fake = FakeClient(wallet_count=wallet_count)
+    monkeypatch.setenv("SUWAPPU_ALLOW_MANAGED_EXECUTION", "1")
+    monkeypatch.setattr(suwappu_tools, "_get_client", lambda: fake)
+
+    with pytest.raises(RuntimeError, match="exactly one managed wallet"):
+        asyncio.run(
+            suwappu_tools.execute_approved_managed_swap(
+                quote_id="q_123", approved_intent_id="intent-123"
+            )
+        )
+    assert fake.simulations == []
+    assert fake.executions == []
