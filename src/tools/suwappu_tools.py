@@ -10,7 +10,32 @@ from typing import Any
 from crewai.tools import tool
 from suwappu import SuwappuError, create_client
 
+from src.runtime import (
+    SuwappuProtocolError,
+    SuwappuTransportError,
+    call_suwappu,
+)
+
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+class ManagedExecutionOutcomeUnknown(RuntimeError):
+    """The execute request may have been accepted but no receipt is trustworthy."""
+
+    def __init__(
+        self,
+        *,
+        quote_id: str,
+        approved_intent_id: str,
+        status: int | None = None,
+    ) -> None:
+        self.quote_id = quote_id
+        self.approved_intent_id = approved_intent_id
+        self.status = status
+        super().__init__(
+            "Managed execution outcome is unknown. Reconcile swap status/history "
+            "before retrying the same quote with the same approved_intent_id."
+        )
 
 
 def _get_client():
@@ -41,11 +66,30 @@ def _validate_idempotency_key(value: str) -> str:
     return key
 
 
+def _validate_quote_response(value: Any) -> None:
+    quote_id = getattr(value, "quote_id", None)
+    if not isinstance(quote_id, str) or not quote_id.strip():
+        raise SuwappuProtocolError("get_quote")
+
+
+def _validate_execution_response(value: Any) -> None:
+    swap_id = getattr(value, "swap_id", None)
+    status = getattr(value, "status", None)
+    if not isinstance(swap_id, int) or isinstance(swap_id, bool) or swap_id <= 0:
+        raise SuwappuProtocolError("execute_managed_swap")
+    if not isinstance(status, str) or not status.strip():
+        raise SuwappuProtocolError("execute_managed_swap")
+
+
 @tool("Get token prices")
 async def get_prices(symbols: str, chain: str = "") -> str:
     """Get current USD prices and 24h changes. symbols may be comma-separated."""
     async with _get_client() as client:
-        return _as_tool_output(await client.get_prices(symbols, chain or None))
+        value = await call_suwappu(
+            "get_prices",
+            client.get_prices(symbols, chain or None),
+        )
+        return _as_tool_output(value)
 
 
 @tool("Get swap quote")
@@ -63,22 +107,28 @@ async def get_quote(
     if amount <= 0:
         raise ValueError("amount must be positive")
     if chain and (from_chain or to_chain):
-        raise ValueError("use chain for same-chain quotes or from_chain/to_chain for cross-chain quotes")
+        raise ValueError(
+            "use chain for same-chain quotes or from_chain/to_chain for cross-chain quotes"
+        )
     if bool(from_chain) != bool(to_chain):
         raise ValueError("cross-chain quotes require both from_chain and to_chain")
     if not chain and not (from_chain and to_chain):
         raise ValueError("provide chain or both from_chain and to_chain")
 
     async with _get_client() as client:
-        value = await client.get_quote(
-            from_token,
-            to_token,
-            amount,
-            chain or None,
-            wallet_address=wallet_address or None,
-            from_chain=from_chain or None,
-            to_chain=to_chain or None,
-            slippage=slippage,
+        value = await call_suwappu(
+            "get_quote",
+            client.get_quote(
+                from_token,
+                to_token,
+                amount,
+                chain or None,
+                wallet_address=wallet_address or None,
+                from_chain=from_chain or None,
+                to_chain=to_chain or None,
+                slippage=slippage,
+            ),
+            validator=_validate_quote_response,
         )
         return _as_tool_output(value)
 
@@ -89,9 +139,12 @@ async def simulate_swap(quote_id: str, wallet_address: str) -> str:
     if not quote_id.strip() or not wallet_address.strip():
         raise ValueError("quote_id and wallet_address are required")
     async with _get_client() as client:
-        value = await client.simulate_swap(
-            quote_id=quote_id.strip(),
-            wallet_address=wallet_address.strip(),
+        value = await call_suwappu(
+            "simulate_swap",
+            client.simulate_swap(
+                quote_id=quote_id.strip(),
+                wallet_address=wallet_address.strip(),
+            ),
         )
         return _as_tool_output(value)
 
@@ -102,9 +155,12 @@ async def prepare_swap(quote_id: str, wallet_address: str) -> str:
     if not quote_id.strip() or not wallet_address.strip():
         raise ValueError("quote_id and wallet_address are required")
     async with _get_client() as client:
-        value = await client.prepare_swap(
-            quote_id=quote_id.strip(),
-            wallet_address=wallet_address.strip(),
+        value = await call_suwappu(
+            "prepare_swap",
+            client.prepare_swap(
+                quote_id=quote_id.strip(),
+                wallet_address=wallet_address.strip(),
+            ),
         )
         return _as_tool_output(value)
 
@@ -115,7 +171,10 @@ async def get_portfolio(wallet_address: str, chain: str = "") -> str:
     if not wallet_address.strip():
         raise ValueError("wallet_address is required")
     async with _get_client() as client:
-        value = await client.get_portfolio(wallet_address.strip(), chain or None)
+        value = await call_suwappu(
+            "get_portfolio",
+            client.get_portfolio(wallet_address.strip(), chain or None),
+        )
         return _as_tool_output(value)
 
 
@@ -123,7 +182,7 @@ async def get_portfolio(wallet_address: str, chain: str = "") -> str:
 async def list_chains() -> str:
     """List chains currently exposed by the Suwappu API."""
     async with _get_client() as client:
-        return _as_tool_output(await client.list_chains())
+        return _as_tool_output(await call_suwappu("list_chains", client.list_chains()))
 
 
 @tool("List tokens")
@@ -132,14 +191,18 @@ async def list_tokens(chain: str) -> str:
     if not chain.strip():
         raise ValueError("chain is required")
     async with _get_client() as client:
-        return _as_tool_output(await client.list_tokens(chain.strip()))
+        return _as_tool_output(
+            await call_suwappu("list_tokens", client.list_tokens(chain.strip()))
+        )
 
 
 @tool("List managed wallets")
 async def list_managed_wallets() -> str:
     """List this agent's managed wallet addresses. This is read-only."""
     async with _get_client() as client:
-        return _as_tool_output(await client.agent.list_wallets())
+        return _as_tool_output(
+            await call_suwappu("list_managed_wallets", client.agent.list_wallets())
+        )
 
 
 @tool("Get managed swap history")
@@ -150,10 +213,13 @@ async def get_swap_history(status: str = "", limit: int = 20, offset: int = 0) -
     if offset < 0:
         raise ValueError("offset must be non-negative")
     async with _get_client() as client:
-        value = await client.list_swaps(
-            status=status.strip() or None,
-            limit=limit,
-            offset=offset,
+        value = await call_suwappu(
+            "get_swap_history",
+            client.list_swaps(
+                status=status.strip() or None,
+                limit=limit,
+                offset=offset,
+            ),
         )
         return _as_tool_output(value)
 
@@ -179,39 +245,48 @@ async def execute_approved_managed_swap(
     intent_id = _validate_idempotency_key(approved_intent_id)
 
     async with _get_client() as client:
-        wallets = await client.agent.list_wallets()
+        wallets = await call_suwappu(
+            "list_managed_wallets",
+            client.agent.list_wallets(),
+        )
         if len(wallets) != 1:
             raise RuntimeError(
                 "Managed execution requires exactly one managed wallet for this agent; "
                 f"found {len(wallets)}"
             )
         wallet = wallets[0]
-        simulation = await client.simulate_swap(
-            quote_id=clean_quote_id,
-            wallet_address=wallet.address,
+        simulation = await call_suwappu(
+            "simulate_swap",
+            client.simulate_swap(
+                quote_id=clean_quote_id,
+                wallet_address=wallet.address,
+            ),
         )
         if not simulation.would_execute:
             warnings = "; ".join(simulation.warnings) or "simulation rejected the quote"
             raise RuntimeError(f"Refusing managed execution: {warnings}")
 
         try:
-            result = await client.execute_managed_swap(
-                clean_quote_id,
-                idempotency_key=intent_id,
+            result = await call_suwappu(
+                "execute_managed_swap",
+                client.execute_managed_swap(
+                    clean_quote_id,
+                    idempotency_key=intent_id,
+                ),
+                validator=_validate_execution_response,
             )
         except SuwappuError as exc:
-            if exc.status >= 500:
-                raise RuntimeError(
-                    "Managed execution returned a server error; outcome may be unknown. "
-                    "Reconcile swap status/history before retrying the same quote with "
-                    "the same approved_intent_id."
+            if exc.status == 408 or exc.status >= 500:
+                raise ManagedExecutionOutcomeUnknown(
+                    quote_id=clean_quote_id,
+                    approved_intent_id=intent_id,
+                    status=exc.status,
                 ) from exc
             raise
-        except Exception as exc:
-            raise RuntimeError(
-                "Managed execution transport failed; outcome may be unknown. Reconcile "
-                "swap status/history before retrying the same quote with the same "
-                "approved_intent_id."
+        except (SuwappuTransportError, SuwappuProtocolError) as exc:
+            raise ManagedExecutionOutcomeUnknown(
+                quote_id=clean_quote_id,
+                approved_intent_id=intent_id,
             ) from exc
 
     return {
@@ -220,4 +295,3 @@ async def execute_approved_managed_swap(
         "simulation": _jsonable(simulation),
         "execution": _jsonable(result),
     }
-
