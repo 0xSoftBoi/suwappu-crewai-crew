@@ -10,6 +10,8 @@ All notable changes to the standalone CrewAI integration are recorded here.
 - Validate quote and managed-execution identifiers before presenting them as usable results.
 - Explicitly disable CrewAI cache, memory, and crew sharing in the financial planning path.
 - Add an operations/runbook guide, dependency auditing, Ruff gates, Dependabot, and a clean wheel-install contract.
+- Add CodeQL analysis for the Python adapter.
+- Document contributor release gates, the scoped audit waiver, and non-negotiable execution/idempotency invariants.
 
 ## 2.0.0 - 2026-08-07
 
